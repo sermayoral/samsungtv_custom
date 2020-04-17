@@ -94,7 +94,7 @@ class PySmartCrypto():
         step4_url = 'http://' + self._host + ':8000/socket.io/1/?t=' + str(millis)
         websocket_response = requests.get(step4_url)
         websocket_url = 'ws://' + self._host + ':8000/socket.io/1/websocket/' + websocket_response.text.split(':')[0]
-        print(websocket_url)
+        # print(websocket_url)
         # pairs to this app with this command.
         connection = websocket.create_connection(websocket_url)
         connection.send('1::/com.samsung.companion')
