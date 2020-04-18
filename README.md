@@ -116,6 +116,7 @@ tv_channel_down:
 
 # Working Models
 
+- **H4500**
 - **H5500**
 - **H6200**
 - **H6400**
