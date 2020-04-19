@@ -74,7 +74,7 @@ Edit it by adding the following lines:
 
 H & J series TV's cannot be turned on over the network. If you have your Home Assistant server connected to the TV by
 HDMI, and configured so that you can call this service to turn on the TV:
-```buildoutcfg
+```
 service: hdmi_cec.power_on
 ```
 So, you can use the HDMI versions and getting full control over your TV.
@@ -95,7 +95,7 @@ service: media_player.play_media
 {
   "entity_id": "media_player.samsungtv",
   "media_content_type": "send_key",
-  "media_content_id": "KEY_CODE",
+  "media_content_id": "KEY_CODE"
 }
 ```
 **Note**: Change "KEY_CODE" by desired key_code.
@@ -133,3 +133,5 @@ Feel free to contribute with other working models and to submit fixes and improv
 If you like this custom component and it is useful for you, please consider supporting me:
 
 <a href="https://www.buymeacoffee.com/XAF0dnBOG" target="_blank"><img src="https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png" alt="Buy Me A Coffee" style="height: 41px !important;width: 174px !important;box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5) !important;-webkit-box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5) !important;" ></a>
+
+<a href="https://www.paypal.me/sermayoral" target="_blank"><img src="https://pluspng.com/img-png/-460.png" alt="Donate with PayPal" width="170" height="36" ></a>
