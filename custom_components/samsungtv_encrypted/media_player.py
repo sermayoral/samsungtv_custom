@@ -463,6 +463,8 @@ class SamsungTVDevice(MediaPlayerDevice):
         upnp_ports = [None] * len(self._urns)
         upnp_paths = [None] * len(self._urns)
         for entry in scan(timeout):
+            if entry.location is None:
+                continue
             if entry.location.startswith('http://{}'.format(self._config['host'])):
                 for i in range(len(self._urns)):
                     if entry.st == self._urns[i]:
