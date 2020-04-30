@@ -389,7 +389,7 @@ class SamsungTVDevice(MediaPlayerDevice):
         """Turn off media player."""
         self._end_of_power_off = dt_util.utcnow() + timedelta(seconds=15)
 
-        self.send_key("KEY_POWEROFF")
+        self.send_key(self._key_power_off)
         # Force closing of remote session to provide instant UI feedback
         try:
             self.get_remote().close()
