@@ -377,6 +377,8 @@ class SamsungTVDevice(MediaPlayerDevice):
 
     def turn_off(self):
         """Turn off media player."""
+        self._end_of_power_off = dt_util.utcnow() + timedelta(seconds=15)
+        
         self.hass.services.call('hdmi_cec', 'standby')
         # Force closing of remote session to provide instant UI feedback
         try:
