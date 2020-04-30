@@ -63,9 +63,13 @@ Edit it by adding the following lines:
 
     ### Custom variables
 
-    - **token:** (string) This contains the token of your encrypted TV (got in step 1)<br>
+    - **token:** (string) (Required) This contains the token of your encrypted TV (got in step 1)<br>
 
-    - **sessionid:** (string) This contains the sessionid of your encrypted TV (got in step 1)<br>
+    - **sessionid:** (string) (Required) This contains the sessionid of your encrypted TV (got in step 1)<br>
+    
+    - **key_power_off:** (string) (Optional) Some TV models use an encrypted command to turn off the TV different from 
+    the command that we use by default. If this is your case, try using other encrypted commands, like 'KEY_POWER' here.
+    <br>Default value: 'KEY_POWEROFF'
     
 2. Reboot Home Assistant
 3. Congrats! You're all set!
