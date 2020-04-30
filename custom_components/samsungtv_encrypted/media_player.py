@@ -50,6 +50,7 @@ MEDIA_TYPE_KEY = "send_key"
 DEFAULT_NAME = "Samsung TV Remote"
 DEFAULT_PORT = 8080
 DEFAULT_TIMEOUT = 2
+DEFAULT_KEY_POWER_OFF = "KEY_POWEROFF"
 KEY_PRESS_TIMEOUT = 1.2
 KNOWN_DEVICES_KEY = "samsungtv_known_devices"
 # SOURCES = {"TV": "KEY_TV", "HDMI": "KEY_HDMI"}
@@ -57,6 +58,7 @@ KNOWN_DEVICES_KEY = "samsungtv_known_devices"
 # CONF_APPLIST = "applist"
 CONF_TOKEN = "token"
 CONF_SESSIONID = "sessionid"
+CONF_KEY_POWER_OFF = "key_power_off"
 MIN_TIME_BETWEEN_FORCED_SCANS = timedelta(seconds=2)
 MIN_TIME_BETWEEN_SCANS = timedelta(seconds=10)
 
@@ -84,6 +86,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
         # vol.Optional(CONF_APPLIST): cv.string,
         vol.Optional(CONF_TOKEN): cv.string,
         vol.Optional(CONF_SESSIONID): cv.string,
+        vol.Optional(CONF_KEY_POWER_OFF, default=DEFAULT_KEY_POWER_OFF): cv.string,
     }
 )
 
@@ -116,6 +119,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         timeout = config.get(CONF_TIMEOUT)
         token = config.get(CONF_TOKEN)
         sessionid = config.get(CONF_SESSIONID)
+        key_power_off = config.get(CONF_KEY_POWER_OFF)
     elif discovery_info is not None:
         tv_name = discovery_info.get("name")
         model = discovery_info.get("model_name")
@@ -125,6 +129,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         timeout = DEFAULT_TIMEOUT
         token = "0"
         sessionid = "0"
+        key_power_off = DEFAULT_KEY_POWER_OFF
         mac = None
         udn = discovery_info.get("udn")
         if udn and udn.startswith("uuid:"):
@@ -137,7 +142,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     ip_addr = socket.gethostbyname(host)
     if ip_addr not in known_devices:
         # known_devices.add(ip_addr)
-        add_entities([SamsungTVDevice(host, port, name, timeout, mac, uuid, token, sessionid)])
+        add_entities([SamsungTVDevice(host, port, name, timeout, mac, uuid, token, sessionid, key_power_off)])
         _LOGGER.info("Samsung TV %s:%d added as '%s'", host, port, name)
     else:
         _LOGGER.info("Ignoring duplicate Samsung TV %s:%d", host, port)
@@ -146,13 +151,14 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
 class SamsungTVDevice(MediaPlayerDevice):
     """Representation of a Samsung TV."""
 
-    def __init__(self, host, port, name, timeout, mac, uuid, token, sessionid):
+    def __init__(self, host, port, name, timeout, mac, uuid, token, sessionid, key_power_off):
         """Initialize the Samsung device."""
         # Save a reference to the imported classes
         self._host = host
         self._port = port
         self._token = token
         self._sessionid = sessionid
+        self._key_power_off = key_power_off
         self._remote_class = PySmartCrypto
         self._name = name
         self._mac = mac
@@ -463,9 +469,7 @@ class SamsungTVDevice(MediaPlayerDevice):
         upnp_ports = [None] * len(self._urns)
         upnp_paths = [None] * len(self._urns)
         for entry in scan(timeout):
-            if entry.location is None:
-                continue
-            if entry.location.startswith('http://{}'.format(self._config['host'])):
+            if entry.location is not None and entry.location.startswith('http://{}'.format(self._config['host'])):
                 for i in range(len(self._urns)):
                     if entry.st == self._urns[i]:
                         upnp_ports[i] = int(entry.location.split(':')[2].split('/')[0])
