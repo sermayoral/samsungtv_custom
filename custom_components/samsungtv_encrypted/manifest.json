@@ -5,5 +5,5 @@
   "requirements": ["pyCEC==0.4.13", "beautifulsoup4==4.6.0", "netdisco==2.6.0"],
   "dependencies": [],
   "codeowners": ["@sermayoral"],
-  "homeassistant": "0.98.0"
+  "homeassistant": "0.110.0"
 }
