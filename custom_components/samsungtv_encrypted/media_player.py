@@ -12,7 +12,7 @@ from .PySmartCrypto.pysmartcrypto import PySmartCrypto
 from bs4 import BeautifulSoup
 from netdisco.ssdp import scan
 
-from homeassistant.components.media_player import MediaPlayerDevice, PLATFORM_SCHEMA, DEVICE_CLASS_TV
+from homeassistant.components.media_player import MediaPlayerEntity, PLATFORM_SCHEMA, DEVICE_CLASS_TV
 from homeassistant.components.media_player.const import (
     MEDIA_TYPE_CHANNEL,
     SUPPORT_NEXT_TRACK,
@@ -148,7 +148,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         _LOGGER.info("Ignoring duplicate Samsung TV %s:%d", host, port)
 
 
-class SamsungTVDevice(MediaPlayerDevice):
+class SamsungTVDevice(MediaPlayerEntity):
     """Representation of a Samsung TV."""
 
     def __init__(self, host, port, name, timeout, mac, uuid, token, sessionid, key_power_off):
@@ -469,7 +469,9 @@ class SamsungTVDevice(MediaPlayerDevice):
         upnp_ports = [None] * len(self._urns)
         upnp_paths = [None] * len(self._urns)
         for entry in scan(timeout):
-            if entry.location is not None and entry.location.startswith('http://{}'.format(self._config['host'])):
+            if entry.location is None:
+                continue
+            if entry.location.startswith('http://{}'.format(self._config['host'])):
                 for i in range(len(self._urns)):
                     if entry.st == self._urns[i]:
                         upnp_ports[i] = int(entry.location.split(':')[2].split('/')[0])
