@@ -130,6 +130,10 @@ tv_channel_down:
 - **HU8550**
 - **J6350**
 
+# Not Working Models
+
+- **J8000**
+
 # Contribution
 
 Feel free to contribute with other working models and to submit fixes and improvements to the code.
