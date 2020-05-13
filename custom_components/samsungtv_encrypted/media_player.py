@@ -358,7 +358,7 @@ class SamsungTVDevice(MediaPlayerEntity):
         volset = str(round(volume * 100))
 
         self.SendSOAP(self._upnp_ports[0], self._upnp_paths[0], self._urns[0], 'SetVolume',
-                      '<InstanceID>0</InstanceID><DesiredVolume>' + volset + '</DesiredVolume><Channel>Master</Channel>',
+                      '<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>' + volset + '</DesiredVolume>',
                       '')
 
     async def async_play_media(self, media_type, media_id, **kwargs):
