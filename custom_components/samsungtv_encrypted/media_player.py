@@ -231,9 +231,7 @@ class SamsungTVDevice(MediaPlayerEntity):
             return
         # first try pinging the TV
         if not self.pingTV():
-            self._state = STATE_OFF
-            # self.get_remote().close()
-            self._remote = None
+            self._set_state_off()
             return
         try:
             # recreate connection if connection was dead
@@ -254,13 +252,21 @@ class SamsungTVDevice(MediaPlayerEntity):
             _LOGGER.debug("Failed sending command %s", key, exc_info=True)
             return
         if self._power_off_in_progress():
-            self._state = STATE_OFF
+            self._set_state_off()
 
     def _power_off_in_progress(self):
         return (
             self._end_of_power_off is not None
             and self._end_of_power_off > dt_util.utcnow()
         )
+
+    def _set_state_off(self):
+        self._state = STATE_OFF
+        self._sourcelist = {}
+        self._selected_source = None
+        self._upnp_paths = None
+        self._upnp_ports = None
+        self._remote = None
 
     @property
     def device_class(self):
