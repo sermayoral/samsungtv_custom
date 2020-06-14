@@ -42,6 +42,7 @@ from homeassistant.const import (
     STATE_ON,
 )
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.script import Script
 from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ KNOWN_DEVICES_KEY = "samsungtv_known_devices"
 CONF_TOKEN = "token"
 CONF_SESSIONID = "sessionid"
 CONF_KEY_POWER_OFF = "key_power_off"
+CONF_TURN_ON_ACTION = "turn_on_action"
 MIN_TIME_BETWEEN_FORCED_SCANS = timedelta(seconds=2)
 MIN_TIME_BETWEEN_SCANS = timedelta(seconds=10)
 
@@ -87,6 +89,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_TOKEN): cv.string,
         vol.Optional(CONF_SESSIONID): cv.string,
         vol.Optional(CONF_KEY_POWER_OFF, default=DEFAULT_KEY_POWER_OFF): cv.string,
+        vol.Optional(CONF_TURN_ON_ACTION, default=None): cv.SCRIPT_SCHEMA,
     }
 )
 
@@ -120,6 +123,9 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         token = config.get(CONF_TOKEN)
         sessionid = config.get(CONF_SESSIONID)
         key_power_off = config.get(CONF_KEY_POWER_OFF)
+        turn_on_action = config.get(CONF_TURN_ON_ACTION)
+        if turn_on_action:
+            turn_on_action = Script(hass, turn_on_action)
     elif discovery_info is not None:
         tv_name = discovery_info.get("name")
         model = discovery_info.get("model_name")
@@ -131,6 +137,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         sessionid = "0"
         key_power_off = DEFAULT_KEY_POWER_OFF
         mac = None
+        turn_on_action = None
         udn = discovery_info.get("udn")
         if udn and udn.startswith("uuid:"):
             uuid = udn[len("uuid:") :]
@@ -142,7 +149,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     ip_addr = socket.gethostbyname(host)
     if ip_addr not in known_devices:
         # known_devices.add(ip_addr)
-        add_entities([SamsungTVDevice(host, port, name, timeout, mac, uuid, token, sessionid, key_power_off)])
+        add_entities([SamsungTVDevice(host, port, name, timeout, mac, uuid, token, sessionid, key_power_off, turn_on_action)])
         _LOGGER.info("Samsung TV %s:%d added as '%s'", host, port, name)
     else:
         _LOGGER.info("Ignoring duplicate Samsung TV %s:%d", host, port)
@@ -151,7 +158,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
 class SamsungTVDevice(MediaPlayerEntity):
     """Representation of a Samsung TV."""
 
-    def __init__(self, host, port, name, timeout, mac, uuid, token, sessionid, key_power_off):
+    def __init__(self, host, port, name, timeout, mac, uuid, token, sessionid, key_power_off, turn_on_action):
         """Initialize the Samsung device."""
         # Save a reference to the imported classes
         self._host = host
@@ -174,6 +181,7 @@ class SamsungTVDevice(MediaPlayerEntity):
         # Mark the end of a shutdown command (need to wait 15 seconds before
         # sending the next command to avoid turning the TV back ON).
         self._end_of_power_off = None
+        self._turn_on_action = turn_on_action
         # Generate a configuration for the Samsung library
         self._config = {
             "name": "HomeAssistant",
@@ -182,6 +190,7 @@ class SamsungTVDevice(MediaPlayerEntity):
             "port": port,
             "host": host,
             "timeout": timeout,
+            "turn_on_action": turn_on_action,
         }
         self._sourcelist = {}
         self._selected_source = None
@@ -303,7 +312,7 @@ class SamsungTVDevice(MediaPlayerEntity):
     @property
     def supported_features(self):
         """Flag media player features that are supported."""
-        if self._mac:
+        if self._mac or self._turn_on_action:
             return SUPPORT_SAMSUNGTV | SUPPORT_TURN_ON
         return SUPPORT_SAMSUNGTV
 
@@ -405,7 +414,9 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def turn_on(self):
         """Turn the media player on."""
-        if self._mac:
+        if self._turn_on_action:
+            self._turn_on_action.run()
+        elif self._mac:
             wakeonlan.send_magic_packet(self._mac)
         else:
             self.send_key("KEY_POWERON")
