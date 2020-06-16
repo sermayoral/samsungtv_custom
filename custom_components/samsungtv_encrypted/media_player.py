@@ -374,12 +374,12 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def set_volume_level(self, volume):
         """Volume up the media player."""
-        if self._upnp_ports and self._upnp_paths and self._urns:
+        if self._upnp_paths:
             volset = str(round(volume * 100))
 
             self.SendSOAP(self._upnp_ports[0], self._upnp_paths[0], self._urns[0], 'SetVolume',
-                          '<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>' + volset + '</DesiredVolume>',
-                          '')
+                          '<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>' + volset +
+                          '</DesiredVolume>', '')
 
     async def async_play_media(self, media_type, media_id, **kwargs):
         """Support changing a channel."""
