@@ -96,6 +96,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 
 def setup_platform(hass, config, add_entities, discovery_info=None):
     """Set up the Samsung TV platform."""
+    _LOGGER.debug("function setup_platform")
     known_devices = hass.data.get(KNOWN_DEVICES_KEY)
     if known_devices is None:
         known_devices = set()
@@ -160,6 +161,7 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def __init__(self, host, port, name, timeout, mac, uuid, token, sessionid, key_power_off, turn_on_action):
         """Initialize the Samsung device."""
+        _LOGGER.debug("function __init__")
         # Save a reference to the imported classes
         self._host = host
         self._port = port
@@ -200,6 +202,7 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def update(self):
         """Update state of device."""
+        _LOGGER.debug("function update")
         self.send_key("KEY")
         if self._state == STATE_ON:
             if not self._upnp_paths:
@@ -219,6 +222,7 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def pingTV(self):
         """ping TV"""
+        _LOGGER.debug("function pingTV")
         cmd = ['ping', '-c1', '-W2', self._host]
         response = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         stdout, stderr = response.communicate()
@@ -229,6 +233,7 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def get_remote(self):
         """Create or return a remote control instance."""
+        _LOGGER.debug("function get_remote")
         if self._remote is None:
             # We need to create a new instance to reconnect.
             self._remote = self._remote_class(self._host, self._port, self._token, self._sessionid)
@@ -237,6 +242,7 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def send_key(self, key):
         """Send a key to the tv and handles exceptions."""
+        _LOGGER.debug("function send_key")
         if self._power_off_in_progress() and key not in ("KEY_POWER", "KEY_POWEROFF"):
             _LOGGER.info("TV is powering off, not sending command: %s", key)
             return
@@ -266,12 +272,14 @@ class SamsungTVDevice(MediaPlayerEntity):
             self._set_state_off()
 
     def _power_off_in_progress(self):
+        _LOGGER.debug("function _power_off_in_progress")
         return (
             self._end_of_power_off is not None
             and self._end_of_power_off > dt_util.utcnow()
         )
 
     def _set_state_off(self):
+        _LOGGER.debug("function _set_state_off")
         self._state = STATE_OFF
         self._sourcelist = {}
         self._selected_source = None
@@ -328,18 +336,22 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def volume_up(self):
         """Volume up the media player."""
+        _LOGGER.debug("function volume_up")
         self.send_key("KEY_VOLUP")
 
     def volume_down(self):
         """Volume down media player."""
+        _LOGGER.debug("function volume_down")
         self.send_key("KEY_VOLDOWN")
 
     def mute_volume(self, mute):
         """Send mute command."""
+        _LOGGER.debug("function mute_volume")
         self.send_key("KEY_MUTE")
 
     def media_play_pause(self):
         """Simulate play pause media player."""
+        _LOGGER.debug("function media_play_pause")
         if self._playing:
             self.media_pause()
         else:
@@ -347,24 +359,29 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def media_play(self):
         """Send play command."""
+        _LOGGER.debug("function media_play")
         self._playing = True
         self.send_key("KEY_PLAY")
 
     def media_pause(self):
         """Send media pause command to media player."""
+        _LOGGER.debug("function media_pause")
         self._playing = False
         self.send_key("KEY_PAUSE")
 
     def media_next_track(self):
         """Send next track command."""
+        _LOGGER.debug("function media_next_track")
         self.send_key("KEY_FF")
 
     def media_previous_track(self):
         """Send the previous track command."""
+        _LOGGER.debug("function media_previous_track")
         self.send_key("KEY_REWIND")
 
     def select_source(self, source):
         """Select input source."""
+        _LOGGER.debug("function select_source")
         if source not in self._sourcelist:
             _LOGGER.error("Unsupported source: {}".format(source))
             return
@@ -374,6 +391,7 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def set_volume_level(self, volume):
         """Volume up the media player."""
+        _LOGGER.debug("function set_volume_level")
         if self._upnp_paths:
             volset = str(round(volume * 100))
 
@@ -383,6 +401,7 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     async def async_play_media(self, media_type, media_id, **kwargs):
         """Support changing a channel."""
+        _LOGGER.debug("function async_play_media")
         if media_type == MEDIA_TYPE_CHANNEL:
         # media_id should only be a channel number
             try:
@@ -403,6 +422,7 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def turn_off(self):
         """Turn off media player."""
+        _LOGGER.debug("function turn_off")
         self._end_of_power_off = dt_util.utcnow() + timedelta(seconds=15)
 
         self.send_key(self._key_power_off)
@@ -415,6 +435,7 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def turn_on(self):
         """Turn the media player on."""
+        _LOGGER.debug("function turn_on")
         if self._turn_on_action:
             self._turn_on_action.run()
         elif self._mac:
@@ -424,12 +445,14 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     async def async_select_source(self, source):
         """Select input source."""
+        _LOGGER.debug("function async_select_source")
         while self._sourcelist == {}:
             await self.hass.async_add_job(self.update)
 
         await self.hass.async_add_job(self.select_source, source)
 
     def SendSOAP(self, port, path, urn, service, body, XMLTag):
+        _LOGGER.debug("function SendSOAP")
         CRLF = "\r\n"
         xmlBody = '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.' \
                    'xmlsoap.org/soap/encoding/">'
@@ -480,12 +503,14 @@ class SamsungTVDevice(MediaPlayerEntity):
             return response_xml[response_xml.find('<s:Envelope'):]
 
     def xmlBytesToStr(self, xml_bytes):
+        _LOGGER.debug("function xmlBytesToStr")
         response_xml = xml_bytes.decode(encoding="utf-8")
         response_xml = response_xml.replace("&lt;", "<")
         response_xml = response_xml.replace("&gt;", ">")
         return response_xml.replace("&quot;", "\"")
 
     def discoverSSDP(self, timeout=5):
+        _LOGGER.debug("function discoverSSDP")
         upnp_ports = [None] * len(self._urns)
         upnp_paths = [None] * len(self._urns)
         for entry in scan(timeout):
@@ -504,6 +529,7 @@ class SamsungTVDevice(MediaPlayerEntity):
         return None, None
 
     def getPathFromUrlSsdp(self, url, i, timeout=2):
+        _LOGGER.debug("function getPathFromUrlSsdp")
         try:
             file = urllib.request.urlopen(url, timeout=timeout)
             data = file.read()
@@ -522,6 +548,7 @@ class SamsungTVDevice(MediaPlayerEntity):
         return None
 
     def getSourceList(self):
+        _LOGGER.debug("function getSourceList")
         sources = {}
         source_names = self.SendSOAP(self._upnp_ports[1], self._upnp_paths[1], self._urns[1], 'GetSourceList', '', 'sourcetype')
         if source_names:
