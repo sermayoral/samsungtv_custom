@@ -446,7 +446,9 @@ class SamsungTVDevice(MediaPlayerEntity):
     async def async_select_source(self, source):
         """Select input source."""
         _LOGGER.debug("function async_select_source")
-        # await self.hass.async_add_job(self.send_key, self._sourcelist[source])
+        while self._sourcelist == {}:
+            await self.hass.async_add_job(self.update)
+
         await self.hass.async_add_job(self.select_source, source)
 
     def SendSOAP(self, port, path, urn, service, body, XMLTag):
