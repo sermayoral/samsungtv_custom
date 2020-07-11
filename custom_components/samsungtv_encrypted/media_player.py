@@ -581,5 +581,5 @@ class SamsungTVDevice(MediaPlayerEntity):
             j = j + 1
 
         sources = dict(zip(source_names, source_ids))
-        _LOGGER.debug('Sourcelist available is '.format(sources))
+        _LOGGER.debug('Sourcelist available is {}'.format(sources))
         return sources
