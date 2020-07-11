@@ -7,6 +7,7 @@ import voluptuous as vol
 import wakeonlan
 import subprocess
 import urllib.request
+import ipaddress
 
 from .PySmartCrypto.pysmartcrypto import PySmartCrypto
 from bs4 import BeautifulSoup
@@ -146,9 +147,12 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         _LOGGER.warning("Cannot determine device")
         return
 
+    try:
+        ipaddress.ip_address(host)
+    except:
+        host = socket.gethostbyname(host)
     # Only add a device once, so discovered devices do not override manual config.
-    ip_addr = socket.gethostbyname(host)
-    if ip_addr not in known_devices:
+    if host not in known_devices:
         # known_devices.add(ip_addr)
         add_entities([SamsungTVDevice(host, port, name, timeout, mac, uuid, token, sessionid, key_power_off, turn_on_action)])
         _LOGGER.info("Samsung TV %s:%d added as '%s'", host, port, name)
