@@ -8,6 +8,7 @@ import wakeonlan
 import subprocess
 import urllib.request
 import ipaddress
+import xmltodict
 
 from .PySmartCrypto.pysmartcrypto import PySmartCrypto
 from bs4 import BeautifulSoup
@@ -209,26 +210,27 @@ class SamsungTVDevice(MediaPlayerEntity):
         """Update state of device."""
         _LOGGER.debug("function update")
         self.send_key("KEY")
-        if self._state == STATE_ON:
-            if not self._upnp_services:
-                self._upnp_services = self.discoverSSDP(timeout=2)
-            if not self._upnp_services:
-                _LOGGER.warn('Unable to update')
-                return
+        if self._state != STATE_ON: return
 
-            if RENDERINGCONTROL in self._upnp_services.keys():
-                current_volume = self.SendSOAP(RENDERINGCONTROL, 'GetVolume', '<InstanceID>0</InstanceID><Channel>Master</Channel>',
-                                               'currentvolume')
-                if current_volume:
-                    self._volume = int(current_volume) / 100
+        if not self._upnp_services:
+            self._upnp_services = self.discoverSSDP(timeout=2)
+        if not self._upnp_services:
+            _LOGGER.warn('Unable to update')
+            return
 
-            if MAINTVAGENT in self._upnp_services.keys():
-                if not bool(self._sourcelist):
-                    self._sourcelist = self.getSourceList()
-                if bool(self._sourcelist):
-                    selected_source = self.SendSOAP(MAINTVAGENT, 'GetCurrentExternalSource', '', 'currentexternalsource')
-                    if selected_source:
-                        self._selected_source = selected_source
+        if RENDERINGCONTROL in self._upnp_services.keys():
+            current_volume = self.SendSOAP(RENDERINGCONTROL, 'GetVolume', '<InstanceID>0</InstanceID><Channel>Master</Channel>',
+                                           'CurrentVolume')
+            if current_volume:
+                self._volume = int(current_volume) / 100
+
+        if MAINTVAGENT in self._upnp_services.keys():
+            if not bool(self._sourcelist):
+                self._sourcelist = self.getSourceList()
+            if bool(self._sourcelist):
+                selected_source = self.SendSOAP(MAINTVAGENT, 'GetCurrentExternalSource', '', 'CurrentExternalSource')
+                if selected_source:
+                    self._selected_source = selected_source
 
     def pingTV(self):
         """ping TV"""
@@ -500,17 +502,19 @@ class SamsungTVDevice(MediaPlayerEntity):
             return
 
         response_xml = self.xmlBytesToStr(bytes(response_xml, 'utf-8'))
+        response_xml = self.extractTag(response_xml, 'u:{}Response'.format(service))
         _LOGGER.debug("Samsung TV received: %s", response_xml)
-        if XMLTag:
-            soup = BeautifulSoup(str(response_xml), 'lxml')
-            xml_values = soup.find_all(XMLTag)
-            xml_values_names = [xmlValue.string for xmlValue in xml_values]
-            if len(xml_values_names) == 1:
-                return xml_values_names[0]
-            else:
-                return xml_values_names
-        else:
-            return response_xml[response_xml.find('<s:Envelope'):]
+
+        if response_xml.find('<s:Fault') != -1:
+            _LOGGER.warn('Unable to {}: {}'.format(service, response_xml))
+            return None
+        if not XMLTag: return response_xml
+
+        parsed = xmltodict.parse(self.extractTag(response_xml, XMLTag))
+        try: return parsed[XMLTag]
+        except:
+            _LOGGER.debug('Unable to find {}: {}'.format(XMLTag, parsed))
+            return None
 
     def xmlBytesToStr(self, xml_bytes):
         _LOGGER.debug("function xmlBytesToStr")
@@ -518,6 +522,19 @@ class SamsungTVDevice(MediaPlayerEntity):
         response_xml = response_xml.replace("&lt;", "<")
         response_xml = response_xml.replace("&gt;", ">")
         return response_xml.replace("&quot;", "\"")
+
+    def extractTag(self, xml, tag):
+        _LOGGER.debug('function extractTag')
+        start = xml.rfind('<{}'.format(tag))
+        if start == -1:
+            _LOGGER.debug('Unable to find tag: {}'.format(tag))
+            tag = 's:Fault'
+            start = xml.rfind('<{}'.format(tag))
+        if start == -1:
+            _LOGGER.debug('Unable to find tag: {}'.format(tag))
+            return xml
+        end = xml.find('</{}>'.format(tag)) + len(tag) + 3
+        return xml[start:end]
 
     def discoverSSDP(self, timeout=5):
         _LOGGER.debug("function discoverSSDP")
@@ -532,53 +549,37 @@ class SamsungTVDevice(MediaPlayerEntity):
             if path[3] != self._config['host']: continue
             if st_map[0] != 'urn' or st_map[2] != 'device': continue
 
-            try:
-                svc_list = e.description['device']['serviceList']['service']
+            try: svc_list = e.description['device']['serviceList']['service']
             except:
                 _LOGGER.debug('{} has no service list'.format(e.st))
                 continue
 
             if isinstance(svc_list, (dict)): svc_list = [svc_list]
             for svc in svc_list:
-                if svc['serviceType'] not in services.keys():
-                    services[svc['serviceType']] = {
-                        'port': int(path[4]),
-                        'path': svc['controlURL']
-                    }
+                if svc['serviceType'] in services.keys(): continue
+                services[svc['serviceType']] = {
+                    'port': int(path[4]),
+                    'path': svc['controlURL']
+                }
 
         for k, v in services.items():
-            _LOGGER.info('{} uPNP service detected at http://{}:{}{}'.format(
-                k.split(':')[3], self._config['host'], v['port'], v['path']
-            ))
+            _LOGGER.info('%s uPNP service detected at http://%s:%s%s', k.split(':')[3], self._config['host'], v['port'], v['path'])
         return services
 
     def getUpnpService(self, urn):
         try: service = self._upnp_services[urn]
         except:
             _LOGGER.debug('URN {} not found in service list'.format(urn))
-            return None
+            return None, None
         return service['path'], service['port']
 
     def getSourceList(self):
         _LOGGER.debug("function getSourceList")
 
-        source_names = self.SendSOAP(MAINTVAGENT, 'GetSourceList', '', 'sourcetype')
-        if not source_names: return {}
-
-        source_ids = self.SendSOAP(MAINTVAGENT, 'GetSourceList', '', 'id')
-        if not source_ids: return {}
-
-        sources_connected = self.SendSOAP(MAINTVAGENT, 'GetSourceList', '', 'connected')
-        if not sources_connected: return {}
-
-        del source_ids[0]
-        j = 0
-        for i in range(len(sources_connected)):
-            if sources_connected[i].lower() == 'yes': continue
-
-            del source_names[i - j]
-            del source_ids[i - j]
-            j = j + 1
+        source_list = self.SendSOAP(MAINTVAGENT, 'GetSourceList', '', 'SourceList')
+        sources = [ dict(s) for s in source_list['Source'] if s['Connected'] == 'Yes' ]
+        source_names = [ s['SourceType'] for s in sources ]
+        source_ids = [ s['ID'] for s in sources ]
 
         sources = dict(zip(source_names, source_ids))
         _LOGGER.debug('Sourcelist available is {}'.format(sources))
