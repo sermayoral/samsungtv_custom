@@ -9,6 +9,8 @@ import subprocess
 import urllib.request
 import ipaddress
 import xmltodict
+import json
+import re
 
 from .PySmartCrypto.pysmartcrypto import PySmartCrypto
 from bs4 import BeautifulSoup
@@ -97,7 +99,11 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 
 # Set URN globals
 RENDERINGCONTROL = 'urn:schemas-upnp-org:service:RenderingControl:1'
+CONNECTIONMANAGER = 'urn:schemas-upnp-org:service:ConnectionManager:1'
+AVTRANSPORT = 'urn:schemas-upnp-org:service:AVTransport:1'
+DIAL = 'urn:dial-multiscreen-org:service:dial:1'
 MAINTVAGENT = 'urn:samsung.com:service:MainTVAgent2:1'
+MULTISCREENSERVICE = 'urn:samsung.com:service:MultiScreenService:1'
 
 def setup_platform(hass, config, add_entities, discovery_info=None):
     """Set up the Samsung TV platform."""
@@ -163,6 +169,161 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     else:
         _LOGGER.info("Ignoring duplicate Samsung TV %s:%d", host, port)
 
+class UPnPService:
+    """A UPnP Device"""
+
+    def __init__(self, host, port, urn, control_path, scpd_path, eventsub_path):
+        """Initialise the UPnP device"""
+        _LOGGER.debug('UPnPService {} __init__ '.format(urn))
+        self._host = host
+        self._port = port
+        self._urn = urn
+        self._control_path = control_path
+        self._scpd_path = scpd_path
+        self._eventsub_path = eventsub_path
+
+        xml_description = urllib.request.urlopen("http://{}:{}{}".format(host, port, scpd_path)).read()
+        description = json.loads(json.dumps(xmltodict.parse(xml_description)))
+        self._vars = self.__getVars(description['scpd']['serviceStateTable']['stateVariable'])
+        self._methods = self.__getMethods(description['scpd']['actionList']['action'])
+
+        def __genQuerySoap(method):
+            def __querySoapWrapper(args = {}):
+                return self.__querySoap(method, args)
+            return __querySoapWrapper
+
+        for method in self._methods:
+            setattr(self, method, __genQuerySoap(method))
+
+    def __getVars(self, vars):
+        """Get the argument map for the UPnP device"""
+        _LOGGER.debug('UPnPService {} getVars'.format(self._urn))
+        if isinstance(vars, (dict)): vars = [vars]
+        var_map = {}
+        for var in vars:
+            var_map[var['name']] = { 'type': var['dataType'] }
+            try: vals = var['allowsValueList']['allowedValue']
+            except: continue
+            if isinstance(vals, (dict)): vals = [vals]
+            var_map[var['name']]['vals'] = vals
+        return var_map
+
+    def __getMethods(self, methods):
+        """Get the methods the device contains"""
+        _LOGGER.debug('UPnPService {} getMethods'.format(self._urn))
+        if isinstance(methods, (dict)): methods = [methods]
+        method_map = {}
+        for method in methods:
+            name = method['name'][0].lower() + method['name'][1:]
+            method_map[name] = {
+                'args': {},
+                'attrs': {}
+            }
+            try: arg_list = method['argumentList']['argument']
+            except: continue
+            if isinstance(arg_list, (dict)): arg_list = [arg_list]
+            for arg in arg_list:
+                if arg['direction'] == 'in': method_map[name]['args'][arg['name']] = self._vars[arg['relatedStateVariable']]
+                if arg['direction'] == 'out': method_map[name]['attrs'][arg['name']] = self._vars[arg['relatedStateVariable']]
+        return method_map
+
+    def __querySoap(self, method, args = {}):
+        """Send a SOAP request"""
+        _LOGGER.debug('UPnPService {} querySoap'.format(self._urn))
+
+        method_name = method[0].upper() + method[1:]
+        xml = self.__createXml(method_name, args)
+        message = self.__compileSoap(method_name, xml)
+
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(2)
+        client.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        _LOGGER.debug("Sending: %s", xml)
+
+        soap_response = ''
+        try:
+            client.connect((self._host, self._port))
+            client.send(bytes(message, 'utf-8'))
+            while True:
+                data_buffer = client.recv(4096)
+                if not data_buffer: break
+                soap_response += str(data_buffer)
+        except socket.error as error:
+            _LOGGER.debug('Error sending upnp soap request. Got {}'.format(error))
+            return
+
+        return_tag = '{}Response'.format(method_name)
+        soap_response = self.__sanitizeSoap(bytes(soap_response, 'utf-8'))
+        xml_response = self.__extractTag(soap_response, 'u:{}'.format(return_tag)).replace('<?xml version="1.0" encoding="UTF-8" ?>', '')
+        _LOGGER.debug("Samsung TV received: %s", xml_response)
+
+        parsed = xmltodict.parse(xml_response)
+
+        try: return parsed[return_tag]
+        except: return parsed
+
+    def __createXml(self, method, args):
+        """Create the xml for sending via SOAP"""
+        _LOGGER.debug('UPnPService {} createXml'.format(self._urn))
+        xml = xmltodict.unparse({
+            's:Envelope': {
+                '@xmlns:s': 'http://schemas.xmlsoap.org/soap/envelope/',
+                '@s:encodingStyle': 'http://schemas.xmlsoap.org/soap/encoding/',
+                's:Body':{
+                    'u:{}'.format(method): {
+                        '@xmlns:u': self._urn,
+                        **args
+                    }
+                }
+            }
+        }, full_document = False)
+        return xml
+
+    def __compileSoap(self, method, message):
+        """Compile a SOAP message"""
+        _LOGGER.debug('UPnPService {} compileSOAP'.format(self._urn))
+
+        CRLF = "\r\n"
+        soap_message = CRLF.join([
+            'POST {} HTTP/1.0'.format(self._control_path),
+            'HOST: {}:{}'.format(self._host, self._port),
+            'CONTENT-TYPE: text/xml;charset="utf-8"',
+            'CONTENT-LENGTH: {}'.format(len(message)),
+            'SOAPACTION: "{}#{}"'.format(self._urn, method),
+            '{}{}{}'.format(CRLF, message, CRLF)
+        ])
+        return soap_message
+
+    def __sanitizeSoap(self, message):
+        _LOGGER.debug('UPnPService {} sanitizeSoap'.format(self._urn))
+        response = message.decode(encoding="utf-8")
+        response = response.replace("&lt;", "<")
+        response = response.replace("&gt;", ">")
+        return response.replace("&quot;", "\"")
+
+    def __extractTag(self, message, tag):
+        _LOGGER.debug('UPnPService {} extractTag'.format(self._urn))
+        start = message.rfind('<{}'.format(tag))
+        if start == -1:
+            _LOGGER.debug('Unable to find tag: {}'.format(tag))
+            tag = 's:Fault'
+            start = message.rfind('<{}'.format(tag))
+        if start == -1:
+            _LOGGER.debug('Unable to find tag: {}'.format(tag))
+            return message
+        end = message.find('</{}>'.format(tag)) + len(tag) + 3
+        return self.__removeNamespaces(message[start:end])
+
+    def __removeNamespaces(self, message):
+        _LOGGER.debug('UPnPService {} removeNamespaces'.format(self._urn))
+        namespaces = re.compile('<([a-z]+):')
+        out = ''
+        for match in namespaces.findall(message):
+            out = message.replace('<{}:'.format(match), '<')
+            out = out.replace(':{}='.format(match), '=')
+            out = out.replace('</{}:'.format(match), '</')
+            out = out.replace('>{}:'.format(match), '>')
+        return out
 
 class SamsungTVDevice(MediaPlayerEntity):
     """Representation of a Samsung TV."""
@@ -205,10 +366,15 @@ class SamsungTVDevice(MediaPlayerEntity):
         self._sourcelist = {}
         self._selected_source = None
         self._upnp_services = None
+        self._channel = None
+        self._renderingcontrol = None
+        self._connectionmanager = None
+        self._avtransport = None
+        self._maintvagent = None
 
     def update(self):
         """Update state of device."""
-        _LOGGER.debug("function update")
+        _LOGGER.debug("SamsungTVDevice update")
         self.send_key("KEY")
         if self._state != STATE_ON: return
 
@@ -218,23 +384,64 @@ class SamsungTVDevice(MediaPlayerEntity):
             _LOGGER.warn('Unable to update')
             return
 
-        if RENDERINGCONTROL in self._upnp_services.keys():
-            current_volume = self.SendSOAP(RENDERINGCONTROL, 'GetVolume', '<InstanceID>0</InstanceID><Channel>Master</Channel>',
-                                           'CurrentVolume')
-            if current_volume:
-                self._volume = int(current_volume) / 100
+        self.updateRenderingControl()
+        self.updateConnectionManager()
+        self.updateAVTransport()
+        self.updateMainTVAgent()
 
-        if MAINTVAGENT in self._upnp_services.keys():
-            if not bool(self._sourcelist):
-                self._sourcelist = self.getSourceList()
-            if bool(self._sourcelist):
-                selected_source = self.SendSOAP(MAINTVAGENT, 'GetCurrentExternalSource', '', 'CurrentExternalSource')
-                if selected_source:
-                    self._selected_source = selected_source
+    def updateRenderingControl(self):
+        """Update the rendering control."""
+        _LOGGER.debug("SamsungTVDevice updateRenderingControl")
+        if not self._renderingcontrol:
+            try: dev = self._upnp_services[RENDERINGCONTROL]
+            except:
+                _LOGGER.warn('{} not found in upnp services'.format(RENDERINGCONTROL))
+                return
+            self._renderingcontrol = UPnPService(self._host, dev['port'], RENDERINGCONTROL, dev['control'], dev['scpd'], dev['eventsub'])
+        try:
+            self._volume = int(self._renderingcontrol.getVolume({'InstanceID': 0, 'Channel': 'Master'})['CurrentVolume']) / 100
+        except:
+            _LOGGER.warn('Unable to get volume')
+
+    def updateConnectionManager(self):
+        """Update the connection manager."""
+        _LOGGER.debug("SamsungTVDevice updateConnectionManager")
+        if not self._connectionmanager:
+            try: dev = self._upnp_services[CONNECTIONMANAGER]
+            except:
+                _LOGGER.warn('{} not found in upnp services'.format(CONNECTIONMANAGER))
+                return
+            self._connectionmanager = UPnPService(self._host, dev['port'], CONNECTIONMANAGER, dev['control'], dev['scpd'], dev['eventsub'])
+
+    def updateAVTransport(self):
+        """Update the AV transport."""
+        _LOGGER.debug("SamsungTVDevice updateAVTransport")
+        if not self._avtransport:
+            try: dev = self._upnp_services[AVTRANSPORT]
+            except:
+                _LOGGER.warn('{} not found in upnp services'.format(AVTRANSPORT))
+                return
+            self._avtransport = UPnPService(self._host, dev['port'], AVTRANSPORT, dev['control'], dev['scpd'], dev['eventsub'])
+
+    def updateMainTVAgent(self):
+        """Update the main tv agent."""
+        _LOGGER.debug("SamsungTVDevice updateMainTVAgent")
+        if not self._maintvagent:
+            try: dev = self._upnp_services[MAINTVAGENT]
+            except:
+                _LOGGER.warn('{} not found in upnp services'.format(MAINTVAGENT))
+                return
+            self._maintvagent = UPnPService(self._host, dev['port'], MAINTVAGENT, dev['control'], dev['scpd'], dev['eventsub'])
+
+        if not bool(self._sourcelist):
+            self._sourcelist = self.getSourceList()
+        if bool(self._sourcelist):
+            try: self._selected_source = self._maintvagent.getCurrentExternalSource()['CurrentExternalSource']
+            except: _LOGGER.warn('Unable to get selected source')
 
     def pingTV(self):
         """ping TV"""
-        _LOGGER.debug("function pingTV")
+        _LOGGER.debug("SamsungTVDevice pingTV")
         cmd = ['ping', '-c1', '-W2', self._host]
         response = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         stdout, stderr = response.communicate()
@@ -245,7 +452,7 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def get_remote(self):
         """Create or return a remote control instance."""
-        _LOGGER.debug("function get_remote")
+        _LOGGER.debug("SamsungTVDevice get_remote")
         if self._remote is None:
             # We need to create a new instance to reconnect.
             self._remote = self._remote_class(self._host, self._port, self._token, self._sessionid)
@@ -254,7 +461,7 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def send_key(self, key):
         """Send a key to the tv and handles exceptions."""
-        _LOGGER.debug("function send_key")
+        _LOGGER.debug("SamsungTVDevice send_key")
         if self._power_off_in_progress() and key not in ("KEY_POWER", "KEY_POWEROFF"):
             _LOGGER.info("TV is powering off, not sending command: %s", key)
             return
@@ -284,14 +491,14 @@ class SamsungTVDevice(MediaPlayerEntity):
             self._set_state_off()
 
     def _power_off_in_progress(self):
-        _LOGGER.debug("function _power_off_in_progress")
+        _LOGGER.debug("SamsungTVDevice _power_off_in_progress")
         return (
             self._end_of_power_off is not None
             and self._end_of_power_off > dt_util.utcnow()
         )
 
     def _set_state_off(self):
-        _LOGGER.debug("function _set_state_off")
+        _LOGGER.debug("SamsungTVDevice _set_state_off")
         self._state = STATE_OFF
         self._sourcelist = {}
         self._selected_source = None
@@ -347,22 +554,22 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def volume_up(self):
         """Volume up the media player."""
-        _LOGGER.debug("function volume_up")
+        _LOGGER.debug("SamsungTVDevice volume_up")
         self.send_key("KEY_VOLUP")
 
     def volume_down(self):
         """Volume down media player."""
-        _LOGGER.debug("function volume_down")
+        _LOGGER.debug("SamsungTVDevice volume_down")
         self.send_key("KEY_VOLDOWN")
 
     def mute_volume(self, mute):
         """Send mute command."""
-        _LOGGER.debug("function mute_volume")
+        _LOGGER.debug("SamsungTVDevice mute_volume")
         self.send_key("KEY_MUTE")
 
     def media_play_pause(self):
         """Simulate play pause media player."""
-        _LOGGER.debug("function media_play_pause")
+        _LOGGER.debug("SamsungTVDevice media_play_pause")
         if self._playing:
             self.media_pause()
         else:
@@ -370,48 +577,43 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def media_play(self):
         """Send play command."""
-        _LOGGER.debug("function media_play")
+        _LOGGER.debug("SamsungTVDevice media_play")
         self._playing = True
         self.send_key("KEY_PLAY")
 
     def media_pause(self):
         """Send media pause command to media player."""
-        _LOGGER.debug("function media_pause")
+        _LOGGER.debug("SamsungTVDevice media_pause")
         self._playing = False
         self.send_key("KEY_PAUSE")
 
     def media_next_track(self):
         """Send next track command."""
-        _LOGGER.debug("function media_next_track")
+        _LOGGER.debug("SamsungTVDevice media_next_track")
         self.send_key("KEY_FF")
 
     def media_previous_track(self):
         """Send the previous track command."""
-        _LOGGER.debug("function media_previous_track")
+        _LOGGER.debug("SamsungTVDevice media_previous_track")
         self.send_key("KEY_REWIND")
 
     def select_source(self, source):
         """Select input source."""
-        _LOGGER.debug("function select_source")
+        _LOGGER.debug("SamsungTVDevice select_source")
         if source not in self._sourcelist:
             _LOGGER.error("Unsupported source: {}".format(source))
             return
 
-        self.SendSOAP(MAINTVAGENT, 'SetMainTVSource', '<Source>'+source+'</Source><ID>' + self._sourcelist[source] +
-                                                      '</ID><UiID>0</UiID>','')
+        self._maintvagent.setMainTVSource({'Source': source, 'ID': self._sourcelist[source], 'UID': 0})
 
     def set_volume_level(self, volume):
         """Volume up the media player."""
-        _LOGGER.debug("function set_volume_level")
-        if RENDERINGCONTROL in self._upnp_services.keys():
-            volset = str(round(volume * 100))
-
-            self.SendSOAP(RENDERINGCONTROL, 'SetVolume', '<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>' +
-                                                         volset + '</DesiredVolume>', '')
+        _LOGGER.debug("SamsungTVDevice set_volume_level")
+        self._renderingcontrol.setVolume({'InstanceID': 0, 'Channel': 'Master', 'DesiredVolume': round(volume * 100)})
 
     async def async_play_media(self, media_type, media_id, **kwargs):
         """Support changing a channel."""
-        _LOGGER.debug("function async_play_media")
+        _LOGGER.debug("SamsungTVDevice async_play_media")
         if media_type == MEDIA_TYPE_CHANNEL:
         # media_id should only be a channel number
             try:
@@ -432,7 +634,7 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def turn_off(self):
         """Turn off media player."""
-        _LOGGER.debug("function turn_off")
+        _LOGGER.debug("SamsungTVDevice turn_off")
         self._end_of_power_off = dt_util.utcnow() + timedelta(seconds=15)
 
         self.send_key(self._key_power_off)
@@ -445,7 +647,7 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     def turn_on(self):
         """Turn the media player on."""
-        _LOGGER.debug("function turn_on")
+        _LOGGER.debug("SamsungTVDevice turn_on")
         if self._turn_on_action:
             self._turn_on_action.run()
         elif self._mac:
@@ -455,89 +657,14 @@ class SamsungTVDevice(MediaPlayerEntity):
 
     async def async_select_source(self, source):
         """Select input source."""
-        _LOGGER.debug("function async_select_source")
+        _LOGGER.debug("SamsungTVDevice async_select_source")
         while self._sourcelist == {}:
             await self.hass.async_add_job(self.update)
 
         await self.hass.async_add_job(self.select_source, source)
 
-    def SendSOAP(self, urn, service, body, XMLTag):
-        _LOGGER.debug("function SendSOAP")
-        path, port = self.getUpnpService(urn)
-
-        CRLF = "\r\n"
-        xmlBody = '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.' \
-                   'xmlsoap.org/soap/encoding/">'
-        xmlBody += '<s:Body>'
-        xmlBody += '<u:{service} xmlns:u="{urn}">{body}</u:{service}>'
-        xmlBody += '</s:Body>'
-        xmlBody += '</s:Envelope>'
-        xmlBody = xmlBody.format(urn=urn, service=service, body=body)
-
-        soapRequest = "POST {path} HTTP/1.0%s" % (CRLF)
-        soapRequest += "HOST: {host}:{port}%s" % (CRLF)
-        soapRequest += "CONTENT-TYPE: text/xml;charset=\"utf-8\"%s" % (CRLF)
-        soapRequest += "CONTENT-LENGTH: {cont_len}%s" % (CRLF)
-        soapRequest += "SOAPACTION: \"{urn}#{service}\"%s" % (CRLF)
-        soapRequest += "%s" % (CRLF)
-        soapRequest += "{xml}%s" % (CRLF)
-        soapRequest = soapRequest.format(host=self._config['host'], port=port, xml=xmlBody, path=path,
-                                         urn=urn, service=service, cont_len=len(xmlBody))
-
-        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client.settimeout(2)
-        client.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        response_xml = ''
-        _LOGGER.debug("Samsung TV sending: %s", soapRequest)
-
-        try:
-            client.connect((self._config['host'], port))
-            client.send(bytes(soapRequest, 'utf-8'))
-            while True:
-                data_buffer = client.recv(4096)
-                if not data_buffer: break
-                response_xml += str(data_buffer)
-        except socket.error as error:
-            _LOGGER.debug('Error sending upnp soap request. Got {}'.format(error))
-            return
-
-        response_xml = self.xmlBytesToStr(bytes(response_xml, 'utf-8'))
-        response_xml = self.extractTag(response_xml, 'u:{}Response'.format(service))
-        _LOGGER.debug("Samsung TV received: %s", response_xml)
-
-        if response_xml.find('<s:Fault') != -1:
-            _LOGGER.warn('Unable to {}: {}'.format(service, response_xml))
-            return None
-        if not XMLTag: return response_xml
-
-        parsed = xmltodict.parse(self.extractTag(response_xml, XMLTag))
-        try: return parsed[XMLTag]
-        except:
-            _LOGGER.debug('Unable to find {}: {}'.format(XMLTag, parsed))
-            return None
-
-    def xmlBytesToStr(self, xml_bytes):
-        _LOGGER.debug("function xmlBytesToStr")
-        response_xml = xml_bytes.decode(encoding="utf-8")
-        response_xml = response_xml.replace("&lt;", "<")
-        response_xml = response_xml.replace("&gt;", ">")
-        return response_xml.replace("&quot;", "\"")
-
-    def extractTag(self, xml, tag):
-        _LOGGER.debug('function extractTag')
-        start = xml.rfind('<{}'.format(tag))
-        if start == -1:
-            _LOGGER.debug('Unable to find tag: {}'.format(tag))
-            tag = 's:Fault'
-            start = xml.rfind('<{}'.format(tag))
-        if start == -1:
-            _LOGGER.debug('Unable to find tag: {}'.format(tag))
-            return xml
-        end = xml.find('</{}>'.format(tag)) + len(tag) + 3
-        return xml[start:end]
-
     def discoverSSDP(self, timeout=5):
-        _LOGGER.debug("function discoverSSDP")
+        _LOGGER.debug("SamsungTVDevice discoverSSDP")
         services = {}
         for e in scan(timeout):
             try: path = e.location.replace('/', ':').split(':')
@@ -559,24 +686,19 @@ class SamsungTVDevice(MediaPlayerEntity):
                 if svc['serviceType'] in services.keys(): continue
                 services[svc['serviceType']] = {
                     'port': int(path[4]),
-                    'path': svc['controlURL']
+                    'control': svc['controlURL'],
+                    'eventsub': svc['eventSubURL'],
+                    'scpd': svc['SCPDURL']
                 }
 
         for k, v in services.items():
-            _LOGGER.info('%s uPNP service detected at http://%s:%s%s', k.split(':')[3], self._config['host'], v['port'], v['path'])
+            _LOGGER.info('%s uPNP service detected at http://%s:%s%s', k.split(':')[3], self._config['host'], v['port'], v['control'])
         return services
 
-    def getUpnpService(self, urn):
-        try: service = self._upnp_services[urn]
-        except:
-            _LOGGER.debug('URN {} not found in service list'.format(urn))
-            return None, None
-        return service['path'], service['port']
-
     def getSourceList(self):
-        _LOGGER.debug("function getSourceList")
+        _LOGGER.debug("SamsungTVDevice getSourceList")
 
-        source_list = self.SendSOAP(MAINTVAGENT, 'GetSourceList', '', 'SourceList')
+        source_list = self._maintvagent.getSourceList()['SourceList']['SourceList']
         sources = [ dict(s) for s in source_list['Source'] if s['Connected'] == 'Yes' ]
         source_names = [ s['SourceType'] for s in sources ]
         source_ids = [ s['ID'] for s in sources ]
