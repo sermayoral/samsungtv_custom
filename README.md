@@ -75,14 +75,14 @@ Edit it by adding the following lines:
       ```
       - platform: samsungtv_encrypted
         ...
-        turn_on_command:
-          service: kodi.call_method
-          data:
-            entity_id: media_player.kodi
-            method: Addons.ExecuteAddon
-            addonid: script.json-cec
-            params:
-              command: turn_on 0
+        turn_on_action:
+          - service: kodi.call_method
+            data:
+              entity_id: media_player.kodi
+              method: Addons.ExecuteAddon
+              addonid: script.json-cec
+              params:
+                command: turn_on 0
       ```
       <br>
     

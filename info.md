@@ -66,10 +66,25 @@ Edit it by adding the following lines:
     - **token:** (string) (Required) This contains the token of your encrypted TV (got in step 1)<br>
 
     - **sessionid:** (string) (Required) This contains the sessionid of your encrypted TV (got in step 1)<br>
-    
+
     - **key_power_off:** (string) (Optional) Some TV models use an encrypted command to turn off the TV different from 
     the command that we use by default. If this is your case, try using other encrypted commands, like 'KEY_POWER' here.
     <br>Default value: 'KEY_POWEROFF'
+
+    - **turn_on_action:** (script) (Optional) Script formatted command to turn on the TV. Example:
+      ```
+      - platform: samsungtv_encrypted
+        ...
+        turn_on_action:
+          - service: kodi.call_method
+            data:
+              entity_id: media_player.kodi
+              method: Addons.ExecuteAddon
+              addonid: script.json-cec
+              params:
+                command: turn_on 0
+      ```
+      <br>
     
 2. Reboot Home Assistant
 3. Congrats! You're all set!
