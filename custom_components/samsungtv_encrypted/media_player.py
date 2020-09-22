@@ -127,7 +127,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         key_power_off = config.get(CONF_KEY_POWER_OFF)
         turn_on_action = config.get(CONF_TURN_ON_ACTION)
         if turn_on_action:
-            turn_on_action = Script(hass, turn_on_action)
+            turn_on_action = Script(hass, turn_on_action, name, 'media_player')
     elif discovery_info is not None:
         tv_name = discovery_info.get("name")
         model = discovery_info.get("model_name")
