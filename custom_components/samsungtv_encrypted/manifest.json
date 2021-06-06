@@ -2,7 +2,7 @@
   "domain": "samsungtv_encrypted",
   "name": "SamsungTV Encrypted",
   "documentation": "https://github.com/sermayoral/ha-samsungtv-encrypted",
-  "requirements": ["wakeonlan==1.1.6", "beautifulsoup4==4.6.0", "netdisco==2.6.0"],
+  "requirements": ["wakeonlan==1.1.6", "beautifulsoup4==4.6.0", "netdisco==2.8.3"],
   "dependencies": [],
   "codeowners": ["@sermayoral"],
   "homeassistant": "2021.3.0",
