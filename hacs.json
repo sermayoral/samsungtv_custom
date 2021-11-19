@@ -1,5 +1,5 @@
 {
   "name": "SamsungTV Encrypted",
   "render_readme": false,
-  "homeassistant": "0.110.0"
+  "homeassistant": "2021.8.0"
 }
