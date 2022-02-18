@@ -62,6 +62,7 @@ CONF_TOKEN = "token"
 CONF_SESSIONID = "sessionid"
 CONF_KEY_POWER_OFF = "key_power_off"
 CONF_TURN_ON_ACTION = "turn_on_action"
+CONF_TURN_OFF_ACTION = "turn_off_action"
 MIN_TIME_BETWEEN_FORCED_SCANS = timedelta(seconds=2)
 MIN_TIME_BETWEEN_SCANS = timedelta(seconds=10)
 
@@ -91,6 +92,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_SESSIONID): cv.string,
         vol.Optional(CONF_KEY_POWER_OFF, default=DEFAULT_KEY_POWER_OFF): cv.string,
         vol.Optional(CONF_TURN_ON_ACTION, default=None): cv.SCRIPT_SCHEMA,
+        vol.Optional(CONF_TURN_OFF_ACTION, default=None): cv.SCRIPT_SCHEMA,
     }
 )
 
@@ -126,8 +128,11 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         sessionid = config.get(CONF_SESSIONID)
         key_power_off = config.get(CONF_KEY_POWER_OFF)
         turn_on_action = config.get(CONF_TURN_ON_ACTION)
+        turn_off_action = config.get(CONF_TURN_OFF_ACTION)
         if turn_on_action:
             turn_on_action = Script(hass, turn_on_action, name, 'media_player')
+        if turn_off_action:
+            turn_off_action = Script(hass, turn_off_action, name, 'media_player')
     elif discovery_info is not None:
         tv_name = discovery_info.get("name")
         model = discovery_info.get("model_name")
@@ -140,6 +145,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         key_power_off = DEFAULT_KEY_POWER_OFF
         mac = None
         turn_on_action = None
+        turn_off_action = None
         udn = discovery_info.get("udn")
         if udn and udn.startswith("uuid:"):
             uuid = udn[len("uuid:") :]
@@ -154,7 +160,8 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     # Only add a device once, so discovered devices do not override manual config.
     if host not in known_devices:
         # known_devices.add(ip_addr)
-        add_entities([SamsungTVDevice(host, port, name, timeout, mac, uuid, token, sessionid, key_power_off, turn_on_action)])
+        add_entities([SamsungTVDevice(host, port, name, timeout, mac, uuid, token, sessionid, key_power_off,
+                                      turn_on_action, turn_off_action)])
         _LOGGER.info("Samsung TV %s:%d added as '%s'", host, port, name)
     else:
         _LOGGER.info("Ignoring duplicate Samsung TV %s:%d", host, port)
@@ -163,7 +170,8 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
 class SamsungTVDevice(MediaPlayerEntity):
     """Representation of a Samsung TV."""
 
-    def __init__(self, host, port, name, timeout, mac, uuid, token, sessionid, key_power_off, turn_on_action):
+    def __init__(self, host, port, name, timeout, mac, uuid, token, sessionid, key_power_off,
+                 turn_on_action, turn_off_action):
         """Initialize the Samsung device."""
         _LOGGER.debug("function __init__")
         # Save a reference to the imported classes
@@ -188,6 +196,7 @@ class SamsungTVDevice(MediaPlayerEntity):
         # sending the next command to avoid turning the TV back ON).
         self._end_of_power_off = None
         self._turn_on_action = turn_on_action
+        self._turn_off_action = turn_off_action
         # Generate a configuration for the Samsung library
         self._config = {
             "name": "HomeAssistant",
@@ -429,7 +438,10 @@ class SamsungTVDevice(MediaPlayerEntity):
         _LOGGER.debug("function turn_off")
         self._end_of_power_off = dt_util.utcnow() + timedelta(seconds=15)
 
-        self.send_key(self._key_power_off)
+        if self._turn_off_action:
+            self._turn_off_action.run()
+        else:
+            self.send_key(self._key_power_off)
         # Force closing of remote session to provide instant UI feedback
         try:
             self.get_remote().close()

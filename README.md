@@ -84,6 +84,16 @@ Edit it by adding the following lines:
               params:
                 command: turn_on 0
       ```
+
+    - **turn_off_action:** (script) (Optional) Script formatted command to turn off the TV. Example:
+      ```
+      - platform: samsungtv_encrypted
+        ...
+        turn_off_action:
+          - service: switch.turn_on
+            target:
+              entity_id: switch.samsung_tv_power
+      ```
       <br>
     
 2. Reboot Home Assistant
