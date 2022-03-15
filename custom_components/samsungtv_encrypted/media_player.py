@@ -439,7 +439,7 @@ class SamsungTVDevice(MediaPlayerEntity):
         self._end_of_power_off = dt_util.utcnow() + timedelta(seconds=15)
 
         if self._turn_off_action:
-            self._turn_off_action.run()
+            self._turn_off_action.run(context=self._context)
         else:
             self.send_key(self._key_power_off)
         # Force closing of remote session to provide instant UI feedback
@@ -453,7 +453,7 @@ class SamsungTVDevice(MediaPlayerEntity):
         """Turn the media player on."""
         _LOGGER.debug("function turn_on")
         if self._turn_on_action:
-            self._turn_on_action.run()
+            self._turn_on_action.run(context=self._context)
         elif self._mac:
             wakeonlan.send_magic_packet(self._mac)
         else:
