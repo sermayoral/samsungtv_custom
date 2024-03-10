@@ -13,20 +13,14 @@ from .PySmartCrypto.pysmartcrypto import PySmartCrypto
 from bs4 import BeautifulSoup
 from netdisco.ssdp import scan
 
-from homeassistant.components.media_player import MediaPlayerEntity, PLATFORM_SCHEMA, DEVICE_CLASS_TV
+from homeassistant.components.media_player import (
+    MediaPlayerDeviceClass,
+    MediaPlayerEntity,
+    MediaPlayerEntityFeature,
+    PLATFORM_SCHEMA
+)
 from homeassistant.components.media_player.const import (
     MEDIA_TYPE_CHANNEL,
-    SUPPORT_NEXT_TRACK,
-    SUPPORT_PAUSE,
-    SUPPORT_PLAY,
-    SUPPORT_PLAY_MEDIA,
-    SUPPORT_PREVIOUS_TRACK,
-    SUPPORT_SELECT_SOURCE,
-    SUPPORT_TURN_OFF,
-    SUPPORT_TURN_ON,
-    SUPPORT_VOLUME_MUTE,
-    SUPPORT_VOLUME_STEP,
-    SUPPORT_VOLUME_SET,
     MEDIA_TYPE_URL,
     MEDIA_TYPE_VIDEO,
     MEDIA_TYPE_PLAYLIST,
@@ -67,16 +61,16 @@ MIN_TIME_BETWEEN_FORCED_SCANS = timedelta(seconds=2)
 MIN_TIME_BETWEEN_SCANS = timedelta(seconds=10)
 
 SUPPORT_SAMSUNGTV = (
-    SUPPORT_PAUSE
-    | SUPPORT_VOLUME_STEP
-    | SUPPORT_VOLUME_MUTE
-    | SUPPORT_VOLUME_SET
-    | SUPPORT_PREVIOUS_TRACK
-    | SUPPORT_SELECT_SOURCE
-    | SUPPORT_NEXT_TRACK
-    | SUPPORT_TURN_OFF
-    | SUPPORT_PLAY
-    | SUPPORT_PLAY_MEDIA
+    MediaPlayerEntityFeature.PAUSE
+    | MediaPlayerEntityFeature.VOLUME_STEP
+    | MediaPlayerEntityFeature.VOLUME_MUTE
+    | MediaPlayerEntityFeature.VOLUME_SET
+    | MediaPlayerEntityFeature.PREVIOUS_TRACK
+    | MediaPlayerEntityFeature.SELECT_SOURCE
+    | MediaPlayerEntityFeature.NEXT_TRACK
+    | MediaPlayerEntityFeature.TURN_OFF
+    | MediaPlayerEntityFeature.PLAY
+    | MediaPlayerEntityFeature.PLAY_MEDIA
 )
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
@@ -303,7 +297,7 @@ class SamsungTVDevice(MediaPlayerEntity):
     @property
     def device_class(self):
         """Set the device class to TV."""
-        return DEVICE_CLASS_TV
+        return MediaPlayerDeviceClass.TV
 
     @property
     def is_volume_muted(self):
@@ -334,7 +328,7 @@ class SamsungTVDevice(MediaPlayerEntity):
     def supported_features(self):
         """Flag media player features that are supported."""
         if self._mac or self._turn_on_action:
-            return SUPPORT_SAMSUNGTV | SUPPORT_TURN_ON
+            return SUPPORT_SAMSUNGTV | MediaPlayerEntityFeature.TURN_ON
         return SUPPORT_SAMSUNGTV
 
     @property
